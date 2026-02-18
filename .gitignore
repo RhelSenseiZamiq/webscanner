@@ -14,3 +14,6 @@ htmlcov/
 
 # Large wordlist files
 wordlists/rockyou.txt
+
+# Scan results (user data)
+data/scans/
