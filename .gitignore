@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.env
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.html
+!src/webscanner/reporting/templates/*.html
+
+# Large wordlist files
+wordlists/rockyou.txt
