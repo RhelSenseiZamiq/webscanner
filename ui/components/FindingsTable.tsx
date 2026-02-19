@@ -6,11 +6,21 @@ import { SEVERITY_ORDER } from "@/lib/utils";
 import SeverityBadge from "./SeverityBadge";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
+type RemediationStatus = "fixed" | "in_progress" | "accepted" | "";
+
 interface Props {
   findings: Finding[];
+  remediation?: Record<string, RemediationStatus>;
+  onRemediation?: (findingId: string, status: RemediationStatus) => void;
 }
 
-export default function FindingsTable({ findings }: Props) {
+const REMEDIATION_BUTTONS: { value: RemediationStatus; label: string; activeClass: string }[] = [
+  { value: "fixed", label: "Fixed", activeClass: "bg-green-700 text-green-100 border-green-600" },
+  { value: "in_progress", label: "In Progress", activeClass: "bg-yellow-700 text-yellow-100 border-yellow-600" },
+  { value: "accepted", label: "Accepted Risk", activeClass: "bg-slate-600 text-slate-200 border-slate-500" },
+];
+
+export default function FindingsTable({ findings, remediation = {}, onRemediation }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -33,6 +43,12 @@ export default function FindingsTable({ findings }: Props) {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  }
+
+  function handleRemediation(findingId: string, value: RemediationStatus) {
+    if (!onRemediation) return;
+    // Clicking the active button clears it
+    onRemediation(findingId, remediation[findingId] === value ? "" : value);
   }
 
   return (
@@ -73,6 +89,7 @@ export default function FindingsTable({ findings }: Props) {
       <div className="space-y-1.5">
         {filtered.map((f) => {
           const isOpen = expanded.has(f.id);
+          const remStatus = remediation[f.id] ?? "";
           return (
             <div key={f.id} className="bg-[#1a1f2e] rounded-lg border border-slate-800 overflow-hidden">
               <button
@@ -89,11 +106,38 @@ export default function FindingsTable({ findings }: Props) {
                   {f.module}
                 </span>
                 <span className="text-sm text-slate-200 flex-1 truncate">{f.title}</span>
+                {remStatus && (
+                  <span className={`text-xs px-2 py-0.5 rounded border ${
+                    REMEDIATION_BUTTONS.find((b) => b.value === remStatus)?.activeClass ?? ""
+                  }`}>
+                    {REMEDIATION_BUTTONS.find((b) => b.value === remStatus)?.label}
+                  </span>
+                )}
                 <span className="text-xs text-slate-500 truncate max-w-48 hidden md:block">{f.url}</span>
               </button>
 
               {isOpen && (
                 <div className="px-4 pb-4 space-y-3 border-t border-slate-800">
+                  {/* Remediation tracker buttons */}
+                  {onRemediation && (
+                    <div className="flex items-center gap-2 mt-3">
+                      <span className="text-xs text-slate-500">Status:</span>
+                      {REMEDIATION_BUTTONS.map((btn) => (
+                        <button
+                          key={btn.value}
+                          onClick={() => handleRemediation(f.id, btn.value)}
+                          className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                            remStatus === btn.value
+                              ? btn.activeClass
+                              : "border-slate-700 text-slate-400 hover:text-slate-200"
+                          }`}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                     <div>
                       <div className="text-xs text-slate-500 uppercase mb-1">Description</div>

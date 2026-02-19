@@ -43,6 +43,8 @@ class ScanRecord:
     )
     # Buffered events for late-connecting SSE clients
     _buffer: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    # Background asyncio task — used for cancel support; excluded from serialisation
+    _task: asyncio.Task | None = field(default=None, repr=False)
 
     def add_finding(self, finding: Finding) -> None:
         self.findings.append(finding)
@@ -148,6 +150,11 @@ class ScanStore:
     def list_all(self) -> list[ScanRecord]:
         return list(reversed(list(self._scans.values())))
 
+    def delete(self, scan_id: str) -> None:
+        """Remove a scan record from memory and delete its disk file."""
+        self._scans.pop(scan_id, None)
+        (_DATA_DIR / f"{scan_id}.json").unlink(missing_ok=True)
+
     def persist(self, record: ScanRecord) -> None:
         """Write a completed or failed scan record to disk."""
         if record.status not in (ScanStatus.COMPLETED, ScanStatus.FAILED):
@@ -170,16 +177,19 @@ class ScanStore:
 
     def _load_from_disk(self) -> None:
         """Load persisted scans from disk on startup (newest first, up to MAX_SCANS)."""
-        paths = sorted(_DATA_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime)
-        # Keep only the latest MAX_SCANS
-        for path in paths[: self.MAX_SCANS]:
+        # Sort newest-first to identify the MAX_SCANS most recent files.
+        # Then insert them oldest-first so list_all()'s reversal yields newest-first.
+        newest_first = sorted(_DATA_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+        to_load = newest_first[: self.MAX_SCANS]
+        paths = list(reversed(to_load))  # oldest-first for ordered insertion
+        for path in paths:
             try:
                 record = _record_from_dict(json.loads(path.read_text(encoding="utf-8")))
                 self._scans[record.scan_id] = record
             except Exception:
                 logger.debug("Skipping corrupt scan file %s", path)
-        # Delete any extra files beyond the limit
-        for path in paths[self.MAX_SCANS :]:
+        # Delete any extra files beyond the limit (oldest files are at the end of newest_first)
+        for path in newest_first[self.MAX_SCANS :]:
             try:
                 path.unlink()
             except Exception:

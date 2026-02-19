@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { getScan, streamScan, type Scan, type Finding, type ScanStatus } from "@/lib/api";
+import { getScan, streamScan, cancelScan, exportScanUrl, type Scan, type Finding, type ScanStatus } from "@/lib/api";
 import { formatDuration } from "@/lib/utils";
 import StatusBadge from "@/components/StatusBadge";
 import SummaryCards from "@/components/SummaryCards";
 import FindingsTable from "@/components/FindingsTable";
-import { Shield, ArrowLeft, Download, Terminal, ChevronDown, ChevronUp } from "lucide-react";
+import { Shield, ArrowLeft, Download, Terminal, ChevronDown, ChevronUp, Square } from "lucide-react";
 
 interface LogEntry { time: string; pct: number; msg: string; }
 
@@ -27,6 +27,13 @@ export default function ScanDetailPage() {
   const [progressMsg, setProgressMsg] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [showLog, setShowLog] = useState(true);
+
+  const [cancelling, setCancelling] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+
+  // Remediation tracker
+  type RemediationStatus = "fixed" | "in_progress" | "accepted" | "";
+  const [remediation, setRemediation] = useState<Record<string, RemediationStatus>>({});
 
   const logEndRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +64,22 @@ export default function ScanDetailPage() {
     loadScan();
   }, [loadScan]);
 
+  // Load remediation state from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`remediation-${scanId}`);
+      if (stored) setRemediation(JSON.parse(stored));
+    } catch {}
+  }, [scanId]);
+
+  function handleRemediation(findingId: string, status: RemediationStatus) {
+    const next = { ...remediation, [findingId]: status };
+    setRemediation(next);
+    try {
+      localStorage.setItem(`remediation-${scanId}`, JSON.stringify(next));
+    } catch {}
+  }
+
   useEffect(() => {
     if (!scan || scan.status === "completed" || scan.status === "failed") return;
 
@@ -83,24 +106,22 @@ export default function ScanDetailPage() {
     return cleanup;
   }, [scan?.scan_id, scan?.status, scanId, loadScan]);
 
-  function downloadJson() {
-    if (!scan) return;
-    const data = {
-      scan_id: scan.scan_id,
-      target: scan.target_url,
-      program: scan.program,
-      started_at: scan.started_at,
-      finished_at: scan.finished_at,
-      summary: scan.summary,
-      findings,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `scan-${scanId.slice(0, 8)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function handleCancel() {
+    setCancelling(true);
+    try {
+      await cancelScan(scanId);
+      setStatus("failed");
+      setError("Scan cancelled by user");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Cancel failed");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  function handleExport(format: "json" | "csv" | "html") {
+    window.open(exportScanUrl(scanId, format), "_blank");
+    setShowExport(false);
   }
 
   // Build live summary from streaming findings
@@ -160,14 +181,46 @@ export default function ScanDetailPage() {
               </div>
             </div>
           </div>
-          <button
-            onClick={downloadJson}
-            disabled={status !== "completed"}
-            className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            Export JSON
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Stop button — only when running */}
+            {status === "running" && (
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="flex items-center gap-1.5 text-sm bg-red-700/80 hover:bg-red-600 text-white px-3 py-1.5 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <Square className="w-3.5 h-3.5 fill-current" />
+                {cancelling ? "Stopping…" : "Stop Scan"}
+              </button>
+            )}
+
+            {/* Export dropdown — only when completed */}
+            {status === "completed" && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowExport((v) => !v)}
+                  className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </button>
+                {showExport && (
+                  <div className="absolute right-0 mt-1 bg-[#1a1f2e] border border-slate-700 rounded-lg shadow-xl z-10 min-w-[130px] overflow-hidden">
+                    {(["json", "csv", "html"] as const).map((fmt) => (
+                      <button
+                        key={fmt}
+                        onClick={() => handleExport(fmt)}
+                        className="w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 transition-colors"
+                      >
+                        {fmt.toUpperCase()} Report
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -248,10 +301,37 @@ export default function ScanDetailPage() {
 
         {/* Findings */}
         <div>
-          <h2 className="text-sm font-medium text-slate-400 mb-3 uppercase tracking-wide">
-            Findings ({findings.length})
-          </h2>
-          <FindingsTable findings={findings} />
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
+              Findings ({findings.length})
+            </h2>
+          </div>
+
+          {/* Remediation summary bar */}
+          {findings.length > 0 && status === "completed" && (() => {
+            const resolved = Object.values(remediation).filter((v) => v === "fixed" || v === "accepted").length;
+            const pct = Math.round((resolved / findings.length) * 100);
+            return (
+              <div className="mb-4 bg-[#1a1f2e] border border-slate-800 rounded-lg px-4 py-3">
+                <div className="flex items-center justify-between mb-1.5 text-xs text-slate-400">
+                  <span>{resolved} / {findings.length} findings resolved</span>
+                  <span>{pct}%</span>
+                </div>
+                <div className="w-full bg-slate-700 rounded-full h-1.5">
+                  <div
+                    className="bg-green-500 h-1.5 rounded-full transition-all"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
+
+          <FindingsTable
+            findings={findings}
+            remediation={remediation}
+            onRemediation={status === "completed" ? handleRemediation : undefined}
+          />
         </div>
       </main>
     </div>

@@ -1,25 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { listScans, type ScanListItem } from "@/lib/api";
 import { formatDuration, formatTime, totalFindings } from "@/lib/utils";
 import StatusBadge from "@/components/StatusBadge";
 import SummaryCards from "@/components/SummaryCards";
 import NewScanForm from "@/components/NewScanForm";
-import { Shield, Plus, RefreshCw, Box, Server } from "lucide-react";
+import StatsPanel from "@/components/StatsPanel";
+import { Shield, Plus, RefreshCw, Box, Server, Search } from "lucide-react";
+
+const STATUS_OPTIONS = ["all", "running", "completed", "failed"] as const;
+type StatusFilter = (typeof STATUS_OPTIONS)[number];
 
 export default function Home() {
   const [scans, setScans] = useState<ScanListItem[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [apiError, setApiError] = useState(false);
+
+  // Filter state
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [hasCritical, setHasCritical] = useState(false);
+  const [hasHigh, setHasHigh] = useState(false);
+  const [searchText, setSearchText] = useState("");
 
   async function fetchScans() {
     try {
       const data = await listScans();
       setScans(data);
+      setApiError(false);
     } catch {
-      // API not available yet
+      setApiError(true);
     } finally {
       setLoading(false);
     }
@@ -30,6 +42,19 @@ export default function Home() {
     const id = setInterval(fetchScans, 5000);
     return () => clearInterval(id);
   }, []);
+
+  const filteredScans = useMemo(() => {
+    return scans.filter((s) => {
+      if (statusFilter !== "all" && s.status !== statusFilter) return false;
+      if (hasCritical && s.summary.critical === 0) return false;
+      if (hasHigh && s.summary.high === 0) return false;
+      if (searchText) {
+        const q = searchText.toLowerCase();
+        if (!s.target_url.toLowerCase().includes(q) && !s.program.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [scans, statusFilter, hasCritical, hasHigh, searchText]);
 
   return (
     <div className="min-h-screen bg-[#0f1117]">
@@ -75,6 +100,14 @@ export default function Home() {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+        {/* API offline banner */}
+        {apiError && (
+          <div className="flex items-center gap-2 bg-yellow-900/30 border border-yellow-700/50 text-yellow-300 text-sm px-4 py-3 rounded-lg">
+            <span>⚠</span>
+            <span>Cannot reach the API — make sure the backend is running on port 8000</span>
+          </div>
+        )}
+
         {/* New Scan Form */}
         {showForm && (
           <div className="bg-[#1a1f2e] border border-slate-700 rounded-xl p-6">
@@ -91,14 +124,75 @@ export default function Home() {
           </div>
         )}
 
+        {/* Dashboard stats */}
+        {!loading && scans.length > 0 && <StatsPanel scans={scans} />}
+
         {/* Scan History */}
         <div>
-          <h2 className="text-base font-semibold text-slate-200 mb-4">
-            Scan History
-            {scans.length > 0 && (
-              <span className="ml-2 text-xs text-slate-500 font-normal">{scans.length} scans</span>
-            )}
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-slate-200">
+              Scan History
+              {scans.length > 0 && (
+                <span className="ml-2 text-xs text-slate-500 font-normal">
+                  Showing {filteredScans.length} of {scans.length}
+                </span>
+              )}
+            </h2>
+          </div>
+
+          {/* Filter bar */}
+          {scans.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 mb-4">
+              {/* Search */}
+              <div className="relative flex-1 min-w-[180px] max-w-xs">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                <input
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="Search URL or program…"
+                  className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-600"
+                />
+              </div>
+
+              {/* Status pills */}
+              <div className="flex gap-1">
+                {STATUS_OPTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={`px-3 py-1 text-xs rounded-full font-medium transition-colors capitalize ${
+                      statusFilter === s
+                        ? "bg-cyan-600 text-white"
+                        : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+
+              {/* Severity toggles */}
+              <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={hasCritical}
+                  onChange={(e) => setHasCritical(e.target.checked)}
+                  className="accent-red-500"
+                />
+                Has Critical
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={hasHigh}
+                  onChange={(e) => setHasHigh(e.target.checked)}
+                  className="accent-orange-500"
+                />
+                Has High
+              </label>
+            </div>
+          )}
 
           {loading && <div className="text-slate-500 text-sm">Loading...</div>}
 
@@ -115,8 +209,14 @@ export default function Home() {
             </div>
           )}
 
+          {!loading && scans.length > 0 && filteredScans.length === 0 && (
+            <div className="text-center py-10 text-slate-500 text-sm">
+              No scans match the current filters.
+            </div>
+          )}
+
           <div className="space-y-3">
-            {scans.map((scan) => (
+            {filteredScans.map((scan) => (
               <Link
                 key={scan.scan_id}
                 href={`/scans/${scan.scan_id}`}

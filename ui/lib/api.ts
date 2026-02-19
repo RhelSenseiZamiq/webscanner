@@ -88,6 +88,26 @@ export async function getScan(scanId: string): Promise<Scan> {
   return res.json();
 }
 
+export async function cancelScan(scanId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/scans/${scanId}/cancel`, { method: "POST" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.detail ?? `HTTP ${res.status}`);
+  }
+}
+
+export async function deleteScan(scanId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/scans/${scanId}`, { method: "DELETE" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.detail ?? `HTTP ${res.status}`);
+  }
+}
+
+export function exportScanUrl(scanId: string, format: "json" | "csv" | "html"): string {
+  return `${API_BASE}/api/scans/${scanId}/export?format=${format}`;
+}
+
 export function streamScan(
   scanId: string,
   onFinding: (finding: Finding) => void,

@@ -9,7 +9,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, HTTPException
+import csv
+import io
+
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sse_starlette.sse import EventSourceResponse
 
@@ -55,6 +58,8 @@ app.add_middleware(
 
 store = ScanStore()
 job_store = JobStore()
+# Keep strong references to background tasks to prevent GC before completion.
+_background_tasks: set[asyncio.Task] = set()
 
 
 @app.get("/api/health")
@@ -89,7 +94,9 @@ async def start_scan(request: StartScanRequest) -> ScanResponse:
         bruteforce_max_attempts=request.bruteforce_max_attempts,
     )
 
-    asyncio.create_task(_run_scan_task(scan_id, scan_config))
+    task = asyncio.create_task(_run_scan_task(scan_id, scan_config))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
     return record.to_response()
 
@@ -157,6 +164,148 @@ async def delete_scan(scan_id: str) -> None:
         raise HTTPException(status_code=404, detail=f"Scan {scan_id!r} not found")
     if record.status == ScanStatus.RUNNING:
         raise HTTPException(status_code=409, detail="Cannot delete a running scan")
+    store.delete(scan_id)
+
+
+@app.get("/api/scans/{scan_id}/export")
+async def export_scan(
+    scan_id: str,
+    format: str = Query(default="json", pattern="^(json|csv|html)$"),
+) -> Response:
+    """Export a scan result as JSON, CSV, or HTML."""
+    record = store.get(scan_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Scan {scan_id!r} not found")
+    if record.status != ScanStatus.COMPLETED:
+        raise HTTPException(status_code=409, detail="Scan is not completed yet")
+
+    if format == "csv":
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["severity", "module", "check_name", "title", "url",
+                          "cvss_score", "cwe_id", "description", "remediation"])
+        for f in record.findings:
+            writer.writerow([
+                f.severity.value, f.module.value, f.check_name, f.title, f.url,
+                f.cvss_score or "", f.cwe_id or "", f.description, f.remediation,
+            ])
+        return Response(
+            content=buf.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=scan-{scan_id[:8]}.csv"},
+        )
+
+    if format == "html":
+        html = _render_export_html(record)
+        return Response(
+            content=html,
+            media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename=scan-{scan_id[:8]}.html"},
+        )
+
+    # Default: JSON
+    import json as _json
+    from webscanner.api.store import _record_to_dict
+    return Response(
+        content=_json.dumps(_record_to_dict(record), indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename=scan-{scan_id[:8]}.json"},
+    )
+
+
+_EXPORT_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WebScanner Report – {target}</title>
+<style>
+  *{{margin:0;padding:0;box-sizing:border-box}}
+  body{{font-family:system-ui,sans-serif;background:#1a1a2e;color:#e0e0e0;padding:2rem}}
+  .container{{max-width:1200px;margin:0 auto}}
+  h1{{color:#00d4ff;margin-bottom:1rem}}
+  .meta{{color:#888;margin-bottom:2rem}}
+  .summary{{display:flex;gap:1rem;margin-bottom:2rem;flex-wrap:wrap}}
+  .card{{padding:1rem 1.5rem;border-radius:8px;background:#16213e;min-width:110px;text-align:center}}
+  .card .n{{font-size:2rem;font-weight:bold}}
+  .critical{{border-left:4px solid #f44}} .critical .n{{color:#f44}}
+  .high{{border-left:4px solid #f80}} .high .n{{color:#f80}}
+  .medium{{border-left:4px solid #fc0}} .medium .n{{color:#fc0}}
+  .low{{border-left:4px solid #48f}} .low .n{{color:#48f}}
+  .info{{border-left:4px solid #888}} .info .n{{color:#888}}
+  table{{width:100%;border-collapse:collapse;margin-top:1rem}}
+  th{{background:#16213e;padding:.75rem;text-align:left;border-bottom:2px solid #333}}
+  td{{padding:.75rem;border-bottom:1px solid #2a2a4a;vertical-align:top}}
+  .badge{{padding:.2rem .5rem;border-radius:4px;font-size:.8rem;font-weight:bold}}
+  .bc{{background:#f44;color:#fff}} .bh{{background:#f80;color:#fff}}
+  .bm{{background:#fc0;color:#000}} .bl{{background:#48f;color:#fff}} .bi{{background:#555;color:#fff}}
+  details summary{{cursor:pointer;color:#00d4ff}}
+  pre{{background:#0f0f23;padding:.75rem;margin-top:.5rem;border-radius:4px;overflow-x:auto;font-size:.82rem;white-space:pre-wrap}}
+</style>
+</head>
+<body><div class="container">
+<h1>WebScanner Vulnerability Report</h1>
+<div class="meta">Target: {target} | Scan ID: {scan_id} | {timestamp}</div>
+<div class="summary">{summary_html}</div>
+<table>
+<thead><tr><th>Severity</th><th>Module</th><th>Title</th><th>URL</th><th>Details</th></tr></thead>
+<tbody>{rows}</tbody>
+</table>
+</div></body></html>"""
+
+
+def _render_export_html(record: "ScanRecord") -> str:  # type: ignore[name-defined]
+    import html as _html
+    from webscanner.core.types import Severity
+    counts = {s.value: 0 for s in Severity}
+    for f in record.findings:
+        counts[f.severity.value] += 1
+    summary_html = "".join(
+        f'<div class="card {sev}"><div class="n">{cnt}</div><div>{sev.upper()}</div></div>'
+        for sev, cnt in counts.items()
+    )
+    badge_cls = {"critical": "bc", "high": "bh", "medium": "bm", "low": "bl", "info": "bi"}
+    rows = ""
+    for f in sorted(record.findings, key=lambda x: list(Severity).index(x.severity)):
+        bc = badge_cls.get(f.severity.value, "bi")
+        title = _html.escape(f.title)
+        url = _html.escape(f.url)
+        desc = _html.escape(f.description)
+        evidence = _html.escape(f.evidence)
+        remediation = _html.escape(f.remediation)
+        cwe = _html.escape(f.cwe_id) if f.cwe_id else ""
+        cvss = _html.escape(str(f.cvss_score)) if f.cvss_score else ""
+        rows += (
+            f"<tr>"
+            f"<td><span class='badge {bc}'>{f.severity.value.upper()}</span></td>"
+            f"<td>{f.module.value}</td><td>{title}</td>"
+            f"<td style='max-width:250px;overflow:hidden;text-overflow:ellipsis'>{url}</td>"
+            f"<td><details><summary>View</summary><pre>{desc}\n\nEvidence: {evidence}\nRemediation: {remediation}"
+            + (f"\nCWE: {cwe}" if cwe else "")
+            + (f"\nCVSS: {cvss}" if cvss else "")
+            + "</pre></details></td></tr>"
+        )
+    return _EXPORT_HTML_TEMPLATE.format(
+        target=_html.escape(record.target_url),
+        scan_id=record.scan_id,  # UUID — safe, but escape for consistency
+        timestamp=record.created_at.isoformat(),
+        summary_html=summary_html,
+        rows=rows,
+    )
+
+
+@app.post("/api/scans/{scan_id}/cancel", status_code=204)
+async def cancel_scan(scan_id: str) -> None:
+    """Cancel a running scan."""
+    record = store.get(scan_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"Scan {scan_id!r} not found")
+    if record.status != ScanStatus.RUNNING:
+        raise HTTPException(status_code=409, detail="Scan is not running")
+    if record._task:
+        record._task.cancel()
+    record.set_error("Cancelled by user")
+    record.finished_at = datetime.now(timezone.utc)
+    store.persist(record)
 
 
 async def _run_scan_task(scan_id: str, config: ScanConfig) -> None:
@@ -165,6 +314,7 @@ async def _run_scan_task(scan_id: str, config: ScanConfig) -> None:
     if not record:
         return
 
+    record._task = asyncio.current_task()
     record.set_status(ScanStatus.RUNNING)
     record.started_at = datetime.now(timezone.utc)
 
@@ -172,6 +322,10 @@ async def _run_scan_task(scan_id: str, config: ScanConfig) -> None:
         result = await run_scan(config, on_progress=record.add_progress)
         record.set_result(result)
         logger.info("Scan %s completed with %d findings", scan_id, len(result.all_findings))
+    except asyncio.CancelledError:
+        # Task was cancelled via the cancel endpoint which already updated the record.
+        logger.info("Scan %s was cancelled", scan_id)
+        raise
     except Exception as e:
         error_msg = str(e)
         logger.error("Scan %s failed: %s", scan_id, error_msg)

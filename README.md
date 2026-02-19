@@ -1,8 +1,41 @@
 # WebScanner
 
-A security scanner built for authorized testing. Covers web vulnerabilities, WiFi security, Docker misconfigurations, and Kubernetes security — all accessible from a dark-themed web UI or straight from the terminal.
+A security scanner built for authorized testing. Covers web vulnerabilities, Docker misconfigurations, and Kubernetes security — all accessible from a dark-themed web UI or straight from the terminal.
 
 > **Important:** This tool is for authorized testing only. It will refuse to run without a scope file that explicitly confirms you have permission to scan the target.
+
+---
+
+## Changelog
+
+### v0.2.0 — 2026-02-19
+
+**New features**
+- **Cancel running scan** — stop any in-progress scan from the web UI with a single click; the backend cancels the asyncio task and persists the final state immediately.
+- **Export findings** — download completed scan results as JSON, CSV, or a self-contained HTML report directly from the scan detail page.
+- **Filter & search** — homepage now has a live search bar (filter by URL or program name), status pill filters (All / Running / Completed / Failed), and Has Critical / Has High checkboxes.
+- **Dashboard statistics** — a stats panel above the scan list shows total / completed / running / failed counts, a stacked severity bar chart across all completed scans, and an overall success rate bar.
+- **Remediation tracker** — mark individual findings as Fixed, In Progress, or Accepted Risk. State is persisted in `localStorage` and survives page reloads. A progress bar above the findings list shows how many findings have been resolved.
+- **Docker + docker-compose deployment** — `Dockerfile.api`, `Dockerfile.ui`, and `docker-compose.yml` added for one-command containerised deployment (`docker compose up --build`).
+
+**Bug fixes**
+- `DELETE /api/scans/{id}` was validating but never actually deleting the record — fixed.
+- Scan history loaded oldest scans first after a server restart instead of newest — fixed sort order in `_load_from_disk()`.
+- API connection errors were silently swallowed; the homepage now shows a warning banner when the backend is unreachable.
+- HTML export output now uses `html.escape()` on all finding fields to prevent XSS in exported reports.
+- Background scan tasks are now kept in a strong-reference set so they cannot be garbage-collected before completion.
+
+---
+
+### v0.1.0 — initial release
+
+- Web vulnerability scanning (recon, headers, OWASP, API security, brute force)
+- Docker security scanner (static + live)
+- Kubernetes security scanner (static + live)
+- FastAPI backend with Server-Sent Events streaming
+- Next.js dark-themed web UI
+- CLI with Typer + Rich output
+- JSON / HTML / terminal report formats
 
 ---
 
@@ -156,60 +189,70 @@ All web-scan modules share a single async token-bucket rate limiter (default: 5 
 
 ```
 webscanner/
-├── wordlists/                        # Wordlists for brute force and directory scanning
-│   ├── common_passwords.txt          # Built-in ~150 common passwords
-│   ├── common_usernames.txt          # Built-in ~60 common usernames
-│   ├── web_paths.txt                 # Built-in ~150 web paths
-│   ├── web-content-common.txt        # Common web paths (SecLists)
-│   ├── web-content-big.txt           # Large web paths list (SecLists)
-│   ├── subdomains-top5000.txt        # Top 5K subdomain names (SecLists)
-│   ├── subdomains-top20000.txt       # Top 20K subdomain names (SecLists)
-│   └── download_wordlists.py         # Download script for SecLists + rockyou
-├── data/scans/                       # Persisted web scan results (last 30, JSON)
+├── Dockerfile.api                        # API container image
+├── Dockerfile.ui                         # UI container image (multi-stage Next.js build)
+├── docker-compose.yml                    # One-command deployment (API + UI)
+├── wordlists/                            # Wordlists for brute force and directory scanning
+│   ├── common_passwords.txt              # Built-in ~150 common passwords
+│   ├── common_usernames.txt              # Built-in ~60 common usernames
+│   ├── web_paths.txt                     # Built-in ~150 web paths
+│   ├── web-content-common.txt            # Common web paths (SecLists)
+│   ├── web-content-big.txt               # Large web paths list (SecLists)
+│   ├── subdomains-top5000.txt            # Top 5K subdomain names (SecLists)
+│   ├── subdomains-top20000.txt           # Top 20K subdomain names (SecLists)
+│   └── download_wordlists.py             # Download script for SecLists + rockyou
+├── data/scans/                           # Persisted web scan results (last 30, JSON)
 ├── src/webscanner/
-│   ├── main.py                       # Typer CLI entry point
-│   ├── core/                         # Shared foundations
-│   │   ├── types.py                  # Immutable dataclasses: Finding, ScanResult, ScanTarget
-│   │   ├── scope.py                  # Authorization gate (safety-critical)
-│   │   ├── rate_limiter.py           # Async token-bucket
-│   │   ├── http_client.py            # Shared aiohttp session with scope enforcement
-│   │   ├── scanner.py                # Scanner Protocol (interface)
-│   │   └── exceptions.py             # Custom exception hierarchy
-│   ├── recon/                        # Subdomain, port, directory, fingerprint
-│   ├── headers/                      # Security headers, SSL/TLS, cookies
-│   ├── owasp/                        # SQLi, XSS, CSRF, SSRF, open redirect, auth, misconfig, secrets
-│   │   ├── path_traversal.py         # LFI / path traversal scanner (CWE-22)
-│   │   ├── command_injection.py      # OS command injection scanner (CWE-78)
-│   │   ├── ssti.py                   # Server-side template injection scanner (CWE-94)
-│   │   └── http_methods.py           # HTTP method tampering (TRACE/PUT/DELETE/OPTIONS)
-│   ├── api_security/                 # Endpoint discovery, auth bypass, IDOR, rate limit, input validation
-│   ├── bruteforce/                   # Web brute force: HTTP auth + HTML login forms
-│   │   ├── http_auth.py              # HTTP Basic/Digest auth brute force
-│   │   └── form_login.py             # Auto-detect login forms, test credentials
-│   ├── docker_security/              # Docker security scanner
+│   ├── main.py                           # Typer CLI entry point
+│   ├── core/                             # Shared foundations
+│   │   ├── types.py                      # Immutable dataclasses: Finding, ScanResult, ScanTarget
+│   │   ├── scope.py                      # Authorization gate (safety-critical)
+│   │   ├── rate_limiter.py               # Async token-bucket
+│   │   ├── http_client.py                # Shared aiohttp session with scope enforcement
+│   │   ├── scanner.py                    # Scanner Protocol (interface)
+│   │   └── exceptions.py                 # Custom exception hierarchy
+│   ├── recon/                            # Subdomain, port, directory, fingerprint
+│   ├── headers/                          # Security headers, SSL/TLS, cookies
+│   ├── owasp/                            # SQLi, XSS, CSRF, SSRF, open redirect, auth, misconfig, secrets
+│   │   ├── path_traversal.py             # LFI / path traversal scanner (CWE-22)
+│   │   ├── command_injection.py          # OS command injection scanner (CWE-78)
+│   │   ├── ssti.py                       # Server-side template injection scanner (CWE-94)
+│   │   └── http_methods.py               # HTTP method tampering (TRACE/PUT/DELETE/OPTIONS)
+│   ├── api_security/                     # Endpoint discovery, auth bypass, IDOR, rate limit, input validation
+│   ├── bruteforce/                       # Web brute force: HTTP auth + HTML login forms
+│   │   ├── http_auth.py                  # HTTP Basic/Digest auth brute force
+│   │   └── form_login.py                 # Auto-detect login forms, test credentials
+│   ├── docker_security/                  # Docker security scanner
 │   │   ├── __init__.py
-│   │   └── scanner.py                # Dockerfile + docker-compose static analysis, live inspect
-│   ├── kubernetes/                   # Kubernetes security scanner
+│   │   └── scanner.py                    # Dockerfile + docker-compose static analysis, live inspect
+│   ├── kubernetes/                       # Kubernetes security scanner
 │   │   ├── __init__.py
-│   │   └── scanner.py                # YAML manifest static analysis + live kubectl checks
-│   ├── reporting/                    # JSON, HTML, terminal reporters
-│   ├── orchestrator/engine.py        # Coordinates all web scan modules
-│   └── api/                          # FastAPI backend
-│       ├── app.py                    # All REST endpoints + SSE streams
-│       ├── models.py                 # Pydantic request/response models
-│       ├── store.py                  # Scan store with SSE broadcast + on-disk persistence (web scans)
-│       └── job_store.py              # Thread-safe job tracker with SSE fan-out (Docker/K8s)
-├── ui/                               # Next.js + TypeScript + Tailwind frontend
+│   │   └── scanner.py                    # YAML manifest static analysis + live kubectl checks
+│   ├── reporting/                        # JSON, HTML, terminal reporters
+│   ├── orchestrator/engine.py            # Coordinates all web scan modules
+│   └── api/                              # FastAPI backend
+│       ├── app.py                        # All REST endpoints + SSE streams
+│       ├── models.py                     # Pydantic request/response models
+│       ├── store.py                      # Scan store with SSE broadcast + on-disk persistence (web scans)
+│       └── job_store.py                  # Thread-safe job tracker with SSE fan-out (Docker/K8s)
+├── ui/                                   # Next.js + TypeScript + Tailwind frontend
 │   └── app/
-│       ├── page.tsx                  # Homepage with navigation
-│       ├── scans/[id]/page.tsx       # Live web scan detail with SSE streaming
-│       ├── docker/page.tsx           # Docker security scanner with progress + live log
-│       └── k8s/page.tsx              # Kubernetes scanner with progress + live log
+│       ├── page.tsx                      # Homepage — scan history, filter bar, dashboard stats
+│       ├── scans/[id]/page.tsx           # Scan detail — live stream, stop button, export, remediation tracker
+│       ├── docker/page.tsx               # Docker security scanner with progress + live log
+│       └── k8s/page.tsx                  # Kubernetes scanner with progress + live log
+│   └── components/
+│       ├── StatsPanel.tsx                # Dashboard overview — counts, severity chart, success rate
+│       ├── FindingsTable.tsx             # Findings list with filter, search, remediation buttons
+│       ├── NewScanForm.tsx               # New scan form with module selection
+│       ├── StatusBadge.tsx               # Scan status pill (running / completed / failed)
+│       ├── SeverityBadge.tsx             # Finding severity badge
+│       └── SummaryCards.tsx              # Per-severity finding count cards
 ├── tests/
-│   ├── unit/                         # Per-module tests with mocked HTTP
-│   ├── integration/                  # Real local HTTP server tests
-│   └── e2e/                          # CLI flow tests
-└── start.sh                          # Interactive launcher (7-option menu)
+│   ├── unit/                             # Per-module tests with mocked HTTP
+│   ├── integration/                      # Real local HTTP server tests
+│   └── e2e/                              # CLI flow tests
+└── start.sh                              # Interactive launcher (7-option menu)
 ```
 
 ---
@@ -220,10 +263,10 @@ webscanner/
 
 - Python 3.12+
 - Node.js 20+ (for the web UI)
-- Docker (optional — for live container inspection)
+- Docker (optional — for live container inspection or containerised deployment)
 - kubectl (optional — for live Kubernetes cluster checks)
 
-### Install
+### Option A — Local install
 
 ```bash
 git clone <repo-url>
@@ -237,6 +280,19 @@ pip install -e ".[dev]"
 # Web UI dependencies
 cd ui && npm install && cd ..
 ```
+
+### Option B — Docker Compose
+
+```bash
+git clone <repo-url>
+cd webscanner
+
+docker compose up --build
+```
+
+The API will be available at `http://localhost:8000` and the UI at `http://localhost:3000`.
+
+> Scan data is persisted to `./data/scans/` on the host via a volume mount.
 
 ### Download wordlists
 
@@ -375,10 +431,24 @@ Direct shortcuts:
 
 | URL | Description |
 |-----|-------------|
-| `/` | Homepage — navigation to all tools |
-| `/scans` | Web vulnerability scanner — new scan form + live findings stream |
+| `/` | Homepage — scan history, filter bar, dashboard stats panel |
+| `/scans/{id}` | Scan detail — live stream, stop button, export dropdown, remediation tracker |
 | `/docker` | Docker scanner — Dockerfile/compose analysis + live container check |
 | `/k8s` | Kubernetes scanner — manifest analysis + live cluster check |
+
+### Homepage features
+
+- **Dashboard stats** — total/completed/running/failed count cards, stacked severity bar chart, success rate bar — visible when at least one scan exists
+- **Filter bar** — search by URL or program name, filter by status (All / Running / Completed / Failed), toggle Has Critical / Has High checkboxes
+- **API offline banner** — yellow warning shown when the backend is unreachable
+
+### Scan detail features
+
+- **Live findings stream** — findings appear as they are discovered via SSE
+- **Stop Scan button** — cancels a running scan immediately (red button, visible only while running)
+- **Export dropdown** — download results as JSON / CSV / HTML Report (available once completed)
+- **Remediation tracker** — mark each finding as Fixed, In Progress, or Accepted Risk; state saved in `localStorage`; progress bar shows resolved count
+- **Collapsible live log** — timestamped progress messages with auto-scroll
 
 ### Features shared across Docker and K8s pages
 
@@ -399,7 +469,9 @@ Direct shortcuts:
 | `GET` | `/api/scans` | List all scans |
 | `GET` | `/api/scans/{id}` | Get scan result |
 | `DELETE` | `/api/scans/{id}` | Delete scan |
+| `POST` | `/api/scans/{id}/cancel` | Cancel a running scan |
 | `GET` | `/api/scans/{id}/stream` | SSE stream for web scan findings |
+| `GET` | `/api/scans/{id}/export?format=json\|csv\|html` | Download scan report |
 | `POST` | `/api/docker/scan` | Run Docker scan (sync) |
 | `POST` | `/api/docker/scan/start` | Start streaming Docker scan → `{job_id}` |
 | `POST` | `/api/k8s/scan` | Run K8s scan (sync) |
@@ -414,7 +486,9 @@ Direct shortcuts:
 
 **JSON** — Full result with every finding: severity, module, evidence, remediation, CWE, CVSS, timestamp.
 
-**HTML** — Self-contained single-file report (Jinja2). Works offline, suitable for bug bounty submissions.
+**CSV** — Spreadsheet-friendly export with columns: severity, module, check_name, title, url, cvss_score, cwe_id, description, remediation.
+
+**HTML** — Self-contained single-file report. Works offline, suitable for bug bounty submissions.
 
 ---
 
@@ -451,10 +525,14 @@ ruff check src/     # linting
 | Scope files | PyYAML |
 | API backend | FastAPI + Uvicorn |
 | Live streaming | sse-starlette (Server-Sent Events) |
-| Web frontend | Next.js + TypeScript + Tailwind CSS |
+| Web frontend | Next.js 15 + TypeScript + Tailwind CSS |
+| State persistence | localStorage (remediation tracker) |
 | Docker scanning | subprocess → docker ps / docker inspect |
 | K8s scanning | subprocess → kubectl get/describe |
+| Containerisation | Docker + docker-compose |
 | Wordlists | SecLists (GitHub) + built-in compact lists |
 | Testing | pytest + pytest-asyncio + pytest-httpserver |
 
 ---
+
+*© 2026 By Zamiq Mustafayev. For authorized security testing only.*
