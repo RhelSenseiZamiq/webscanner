@@ -12,6 +12,7 @@ license = "MIT"
 dependencies = [
     "aiohttp>=3.9.0",
     "aiodns>=3.1.0",
+    "certifi>=2024.0.0",
     "beautifulsoup4>=4.12.0",
     "lxml>=5.0.0",
     "pyOpenSSL>=24.0.0",

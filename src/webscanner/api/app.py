@@ -14,6 +14,7 @@ import io
 
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from sse_starlette.sse import EventSourceResponse
 
 from webscanner.api.models import (
@@ -61,6 +62,11 @@ store = ScanStore()
 job_store = JobStore()
 # Keep strong references to background tasks to prevent GC before completion.
 _background_tasks: set[asyncio.Task] = set()
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/api/health")
