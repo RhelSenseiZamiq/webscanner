@@ -25,7 +25,7 @@ print_banner() {
   echo "  ╚███╔███╔╝███████╗██████╔╝███████║╚██████╗██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║"
   echo "   ╚══╝╚══╝ ╚══════╝╚═════╝ ╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝"
   echo -e "${RESET}"
-  echo -e "  ${DIM}Authorized web & WiFi vulnerability scanner — v0.1.0${RESET}"
+  echo -e "  ${DIM}Authorized web vulnerability scanner — v0.1.0${RESET}"
   echo -e "  ${DIM}Root: ${ROOT}${RESET}"
   echo
 }
@@ -147,53 +147,6 @@ print_infra_status() {
   fi
 }
 
-# ── Wordlist / capture helpers ────────────────────────────────────────────────
-list_wordlists() {
-  echo -e "\n  ${BOLD}Available wordlists:${RESET}"
-  local i=1
-  while IFS= read -r f; do
-    local size
-    size=$(du -sh "$f" 2>/dev/null | awk '{print $1}')
-    echo -e "    ${DIM}[$i]${RESET} $(basename "$f")  ${DIM}(${size})${RESET}"
-    (( i++ ))
-  done < <(find "$ROOT/wordlists" -name "*.txt" | sort)
-}
-
-pick_wordlist() {
-  list_wordlists
-  echo
-  read -rp "  Enter wordlist name or number (Enter = wifi-passwords.txt): " choice
-  if [[ -z "$choice" ]]; then
-    echo "$ROOT/wordlists/wifi-passwords.txt"
-    return
-  fi
-  if [[ "$choice" =~ ^[0-9]+$ ]]; then
-    local files
-    mapfile -t files < <(find "$ROOT/wordlists" -name "*.txt" | sort)
-    echo "${files[$((choice-1))]}"
-  else
-    echo "$ROOT/wordlists/$choice"
-  fi
-}
-
-pick_capture() {
-  local caps
-  mapfile -t caps < <(find "$ROOT/captures" -name "*.cap" -o -name "*.hc22000" 2>/dev/null | sort)
-  if [[ ${#caps[@]} -eq 0 ]]; then
-    warn "No capture files found in captures/"
-    info "Drop your .cap or .hc22000 files into: ${DIM}${ROOT}/captures/${RESET}"
-    return 1
-  fi
-  echo -e "\n  ${BOLD}Capture files:${RESET}"
-  for i in "${!caps[@]}"; do
-    echo -e "    ${DIM}[$((i+1))]${RESET} $(basename "${caps[$i]}")"
-  done
-  echo
-  read -rp "  Select capture file [1]: " choice
-  choice="${choice:-1}"
-  echo "${caps[$((choice-1))]}"
-}
-
 # ── [1] Start ─────────────────────────────────────────────────────────────────
 start_services() {
   print_banner
@@ -308,36 +261,7 @@ show_status() {
   read -rp "  Press Enter to return to menu..." _
 }
 
-# ── [5] WiFi Online Attack ────────────────────────────────────────────────────
-run_wifi_attack() {
-  print_banner
-  echo -e "  ${BOLD}${MAGENTA}WiFi Online Attack${RESET}  ${DIM}(try connecting with each password)${RESET}\n"
-  echo -e "  ${YELLOW}⚠  Authorized testing only — use on networks you own or have permission to test.${RESET}\n"
-
-  if [[ ! -f "$ROOT/.venv/bin/activate" ]]; then
-    err "Python venv not found. Run setup first."
-    echo; read -rp "  Press Enter to return..." _; return
-  fi
-
-  read -rp "  Target SSID: " target_ssid
-  if [[ -z "$target_ssid" ]]; then
-    warn "No SSID entered."; sleep 1; return
-  fi
-
-  wl=$(pick_wordlist)
-  echo
-  read -rp "  Max attempts [30]: " max_att
-  max_att="${max_att:-30}"
-
-  sep; echo
-  source "$ROOT/.venv/bin/activate"
-  python -m webscanner wifi-attack "$target_ssid" \
-    --wordlist "$wl" --max-attempts "$max_att"
-  echo
-  read -rp "  Press Enter to return to menu..." _
-}
-
-# ── [6] Docker Scan ───────────────────────────────────────────────────────────
+# ── [4] Docker Scan ───────────────────────────────────────────────────────────
 run_docker_scan() {
   print_banner
   echo -e "  ${BOLD}Docker Security Scan${RESET}\n"
@@ -387,7 +311,7 @@ run_docker_scan() {
   read -rp "  Press Enter to return to menu..." _
 }
 
-# ── [7] Kubernetes Scan ───────────────────────────────────────────────────────
+# ── [5] Kubernetes Scan ───────────────────────────────────────────────────────
 run_k8s_scan() {
   print_banner
   echo -e "  ${BOLD}Kubernetes Security Scan${RESET}\n"
@@ -441,70 +365,7 @@ run_k8s_scan() {
   read -rp "  Press Enter to return to menu..." _
 }
 
-# ── [4] WPA Audit ─────────────────────────────────────────────────────────────
-run_wpa_audit() {
-  while true; do
-    print_banner
-    echo -e "  ${BOLD}${MAGENTA}WPA Password Audit${RESET}  ${DIM}(local aircrack-ng / hashcat)${RESET}\n"
-
-    local has_aircrack=false has_hashcat=false
-    command -v aircrack-ng &>/dev/null && has_aircrack=true
-    command -v hashcat     &>/dev/null && has_hashcat=true
-
-    if [[ "$has_aircrack" == false && "$has_hashcat" == false ]]; then
-      warn "Neither aircrack-ng nor hashcat is installed."
-      info "Install on macOS:        ${DIM}brew install aircrack-ng hashcat${RESET}"
-      info "Install on Debian/Ubuntu:${DIM}sudo apt install aircrack-ng hashcat${RESET}"
-      echo
-      read -rp "  Press Enter to return to menu..." _
-      return
-    fi
-
-    sep
-    echo -e "  ${BOLD}What do you want to do?${RESET}\n"
-    [[ "$has_aircrack" == true ]] && \
-      echo -e "  ${CYAN}[1]${RESET}  aircrack-ng  — dictionary attack on a .cap file"
-    [[ "$has_hashcat" == true ]] && \
-      echo -e "  ${CYAN}[2]${RESET}  hashcat      — dictionary attack on a .hc22000 file"
-    echo -e "  ${CYAN}[0]${RESET}  Back to main menu"
-    echo
-    read -rp "  Choice [0]: " choice
-    choice="${choice:-0}"
-
-    case "$choice" in
-      1)
-        if [[ "$has_aircrack" == false ]]; then warn "aircrack-ng not installed."; sleep 1; continue; fi
-        cap=$(pick_capture) || { read -rp "  Press Enter to continue..." _; continue; }
-        wl=$(pick_wordlist)
-        echo
-        info "Running aircrack-ng..."
-        info "Capture:  $(basename "$cap")"
-        info "Wordlist: $(basename "$wl")"
-        sep; echo
-        aircrack-ng -w "$wl" "$cap"
-        echo
-        read -rp "  Press Enter to continue..." _
-        ;;
-      2)
-        if [[ "$has_hashcat" == false ]]; then warn "hashcat not installed."; sleep 1; continue; fi
-        cap=$(pick_capture) || { read -rp "  Press Enter to continue..." _; continue; }
-        wl=$(pick_wordlist)
-        echo
-        info "Running hashcat (mode 22000)..."
-        info "Capture:  $(basename "$cap")"
-        info "Wordlist: $(basename "$wl")"
-        sep; echo
-        hashcat -m 22000 "$cap" "$wl" -O --potfile-path "$ROOT/captures/hashcat.pot"
-        echo
-        read -rp "  Press Enter to continue..." _
-        ;;
-      0) return ;;
-      *) warn "Invalid choice." ;;
-    esac
-  done
-}
-
-# ── [5] Download wordlists ────────────────────────────────────────────────────
+# ── [6] Download wordlists ────────────────────────────────────────────────────
 download_wordlists() {
   print_banner
   echo -e "  ${BOLD}Download Wordlists${RESET}  ${DIM}(SecLists + optional rockyou)${RESET}\n"
@@ -520,7 +381,7 @@ download_wordlists() {
   read -rp "  Press Enter to return to menu..." _
 }
 
-# ── [9] Install Security Tools ────────────────────────────────────────────────
+# ── [7] Install Security Tools ────────────────────────────────────────────────
 run_install_tools() {
   print_banner
   echo -e "  ${BOLD}Security Tool Installer${RESET}  ${DIM}(via Homebrew)${RESET}\n"
@@ -693,16 +554,12 @@ main_menu() {
     echo -e "  ${CYAN}[2]${RESET}  Stop            — stop API + UI"
     echo -e "  ${CYAN}[3]${RESET}  Status          — full status report"
     echo
-    echo -e "  ${BOLD}WiFi${RESET}"
-    echo -e "  ${CYAN}[4]${RESET}  WPA Audit       — dictionary attack on captured handshake"
-    echo -e "  ${CYAN}[5]${RESET}  WiFi Attack     — online brute force against a live SSID"
-    echo
     echo -e "  ${BOLD}Infrastructure${RESET}"
-    echo -e "  ${CYAN}[6]${RESET}  Docker Scan     — Dockerfile / compose / container checks  ${docker_status}"
-    echo -e "  ${CYAN}[7]${RESET}  K8s Scan        — manifest / live cluster checks           ${kubectl_status}"
+    echo -e "  ${CYAN}[4]${RESET}  Docker Scan     — Dockerfile / compose / container checks  ${docker_status}"
+    echo -e "  ${CYAN}[5]${RESET}  K8s Scan        — manifest / live cluster checks           ${kubectl_status}"
     echo
-    echo -e "  ${CYAN}[8]${RESET}  Download wordlists"
-    echo -e "  ${CYAN}[9]${RESET}  Install Tools   — brew install security tools"
+    echo -e "  ${CYAN}[6]${RESET}  Download wordlists"
+    echo -e "  ${CYAN}[7]${RESET}  Install Tools   — brew install security tools"
     echo -e "  ${CYAN}[0]${RESET}  Exit"
     sep
     echo
@@ -714,12 +571,10 @@ main_menu() {
       1) start_services ;;
       2) stop_services ;;
       3) show_status ;;
-      4) run_wpa_audit ;;
-      5) run_wifi_attack ;;
-      6) run_docker_scan ;;
-      7) run_k8s_scan ;;
-      8) download_wordlists ;;
-      9) run_install_tools ;;
+      4) run_docker_scan ;;
+      5) run_k8s_scan ;;
+      6) download_wordlists ;;
+      7) run_install_tools ;;
       0) echo -e "  ${DIM}Bye.${RESET}\n"; exit 0 ;;
       *) warn "Unknown option '${choice}'. Try again."; sleep 1 ;;
     esac
@@ -727,13 +582,11 @@ main_menu() {
 }
 
 # ── Entry point ───────────────────────────────────────────────────────────────
-# Direct shortcuts: ./start.sh start | stop | status | wpa-audit | wordlists
+# Direct shortcuts: ./start.sh start | stop | status | docker-scan | k8s-scan | wordlists | install-tools
 case "${1:-}" in
   start)        check_deps && start_services ;;
   stop)         stop_services ;;
   status)       show_status ;;
-  wpa-audit)    run_wpa_audit ;;
-  wifi-attack)  run_wifi_attack ;;
   docker-scan)  run_docker_scan ;;
   k8s-scan)     run_k8s_scan ;;
   wordlists)    download_wordlists ;;

@@ -7,7 +7,7 @@ import { formatDuration, formatTime, totalFindings } from "@/lib/utils";
 import StatusBadge from "@/components/StatusBadge";
 import SummaryCards from "@/components/SummaryCards";
 import NewScanForm from "@/components/NewScanForm";
-import { Shield, Plus, RefreshCw, Wifi, Box, Server } from "lucide-react";
+import { Shield, Plus, RefreshCw, Box, Server } from "lucide-react";
 
 export default function Home() {
   const [scans, setScans] = useState<ScanListItem[]>([]);
@@ -42,13 +42,6 @@ export default function Home() {
             <span className="text-xs text-slate-500 ml-1">v0.1.0</span>
           </div>
           <div className="flex gap-2">
-            <Link
-              href="/wifi"
-              className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-cyan-400 border border-slate-700 hover:border-cyan-600 px-3 py-1.5 rounded-lg transition-colors"
-            >
-              <Wifi className="w-4 h-4" />
-              WiFi
-            </Link>
             <Link
               href="/docker"
               className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-blue-400 border border-slate-700 hover:border-blue-600 px-3 py-1.5 rounded-lg transition-colors"

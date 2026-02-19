@@ -27,31 +27,6 @@ Detects HTTP Basic auth and HTML login forms, then tests credentials from a word
 
 ---
 
-### WiFi Security
-
-**Passive WiFi Scanner**
-Discovers nearby wireless networks using OS-native tools and identifies:
-- Open networks (no encryption)
-- WEP encryption (broken cipher)
-- WPS-enabled access points
-- TKIP-only ciphers
-- Rogue / evil twin APs (two or more networks sharing the same SSID but different BSSIDs)
-- Hidden SSIDs (broadcast suppression)
-- Deauth attack surface (WPA2-Personal without 802.11w / PMF)
-- WPA downgrade risk (mixed WPA + WPA2 mode)
-
-No packets injected. On macOS, uses a CoreWLAN Swift helper for real SSIDs (falls back to `system_profiler` if Swift compilation fails). When SSIDs are hidden by macOS privacy, a warning banner guides you through enabling Location Services.
-
-**WiFi Online Attack**
-Brute-forces a live WPA/WPA2 network by trying each password from a wordlist via `networksetup`. Saves your current connection and reconnects to it when done (success or failure). Hard cap of 50 attempts. ~8–10 seconds per attempt — designed for targeted, small wordlists. Runs as a background streaming job with live progress bar and attack log. The SSID field auto-populates from your saved networks (no Location Services required) via a `<datalist>` dropdown.
-
-> Only test networks you own or have explicit written permission to attack.
-
-**WPA Password Audit**
-Tests your own WiFi password strength by running a dictionary attack against a captured WPA handshake (`.cap` or `.hc22000`) via `aircrack-ng` or `hashcat`.
-
----
-
 ### Docker Security Scanner
 
 Static analysis of Dockerfiles and `docker-compose` files, plus optional live inspection of running containers.
@@ -157,13 +132,13 @@ Report  (terminal / JSON / HTML)
 
 All scan types in the web UI use Server-Sent Events (SSE) for real-time progress:
 
-1. A `POST /api/<type>/scan/start` (or `/api/wifi/attack/start`) call immediately returns a `job_id`.
+1. A `POST /api/<type>/scan/start` call immediately returns a `job_id`.
 2. The frontend opens an `EventSource` connection to `GET /api/jobs/{job_id}/stream`.
 3. The backend emits `progress` events (percentage + message) as the scan runs.
 4. A final `completed` event delivers the full result; an `error` event delivers the failure reason.
 5. The UI shows a progress bar, the current step message, and a collapsible live log panel that auto-scrolls as lines arrive.
 
-This pattern covers: WiFi passive scan, WiFi online attack, Docker scan, K8s scan, and web vulnerability scans.
+This pattern covers: Docker scan, K8s scan, and web vulnerability scans.
 
 Late-connecting clients receive the full event history (buffered server-side), so page refreshes don't lose progress.
 
@@ -185,13 +160,11 @@ webscanner/
 │   ├── common_passwords.txt          # Built-in ~150 common passwords
 │   ├── common_usernames.txt          # Built-in ~60 common usernames
 │   ├── web_paths.txt                 # Built-in ~150 web paths
-│   ├── wifi-passwords.txt            # 4,800 probable WPA passwords (SecLists)
 │   ├── web-content-common.txt        # Common web paths (SecLists)
 │   ├── web-content-big.txt           # Large web paths list (SecLists)
 │   ├── subdomains-top5000.txt        # Top 5K subdomain names (SecLists)
 │   ├── subdomains-top20000.txt       # Top 20K subdomain names (SecLists)
 │   └── download_wordlists.py         # Download script for SecLists + rockyou
-├── captures/                         # Drop .cap / .hc22000 files here for WPA audit
 ├── data/scans/                       # Persisted web scan results (last 30, JSON)
 ├── src/webscanner/
 │   ├── main.py                       # Typer CLI entry point
@@ -213,12 +186,6 @@ webscanner/
 │   ├── bruteforce/                   # Web brute force: HTTP auth + HTML login forms
 │   │   ├── http_auth.py              # HTTP Basic/Digest auth brute force
 │   │   └── form_login.py             # Auto-detect login forms, test credentials
-│   ├── wifi/                         # WiFi security modules
-│   │   ├── scanner.py                # Passive WiFi scan (CoreWLAN/system_profiler/nmcli/netsh) + get_preferred_networks()
-│   │   ├── swift_helper.py           # CoreWLAN Swift helper for real SSIDs on macOS
-│   │   ├── analyzer.py               # Security analysis: open/WEP/WPS/evil twin/deauth/downgrade findings
-│   │   ├── online_attack.py          # Streaming online WPA brute force via networksetup
-│   │   └── wpa_audit.py              # Dictionary attack on .cap/.hc22000 files
 │   ├── docker_security/              # Docker security scanner
 │   │   ├── __init__.py
 │   │   └── scanner.py                # Dockerfile + docker-compose static analysis, live inspect
@@ -231,19 +198,18 @@ webscanner/
 │       ├── app.py                    # All REST endpoints + SSE streams
 │       ├── models.py                 # Pydantic request/response models
 │       ├── store.py                  # Scan store with SSE broadcast + on-disk persistence (web scans)
-│       └── job_store.py              # Thread-safe job tracker with SSE fan-out (WiFi/Docker/K8s)
+│       └── job_store.py              # Thread-safe job tracker with SSE fan-out (Docker/K8s)
 ├── ui/                               # Next.js + TypeScript + Tailwind frontend
 │   └── app/
 │       ├── page.tsx                  # Homepage with navigation
 │       ├── scans/[id]/page.tsx       # Live web scan detail with SSE streaming
-│       ├── wifi/page.tsx             # WiFi scanner: passive scan + per-network attack panel
 │       ├── docker/page.tsx           # Docker security scanner with progress + live log
 │       └── k8s/page.tsx              # Kubernetes scanner with progress + live log
 ├── tests/
 │   ├── unit/                         # Per-module tests with mocked HTTP
 │   ├── integration/                  # Real local HTTP server tests
 │   └── e2e/                          # CLI flow tests
-└── start.sh                          # Interactive launcher (9-option menu)
+└── start.sh                          # Interactive launcher (7-option menu)
 ```
 
 ---
@@ -256,8 +222,6 @@ webscanner/
 - Node.js 20+ (for the web UI)
 - Docker (optional — for live container inspection)
 - kubectl (optional — for live Kubernetes cluster checks)
-- Swift (macOS) — auto-detected for CoreWLAN WiFi scanning
-- aircrack-ng or hashcat (optional — for WPA audit)
 
 ### Install
 
@@ -340,47 +304,6 @@ excluded_paths:
 
 ---
 
-### WiFi scanning
-
-```bash
-# Passive scan — discover nearby networks + security findings
-webscanner wifi
-
-# Save as JSON
-webscanner wifi --output-format json --output-file wifi-report.json
-```
-
-### WiFi online attack
-
-```bash
-# Try up to 30 passwords from a wordlist against a live SSID
-webscanner wifi-attack "MyNetwork" \
-  --wordlist wordlists/wifi-passwords.txt \
-  --max-attempts 30
-
-# Use a custom interface
-webscanner wifi-attack "MyNetwork" \
-  --wordlist wordlists/wifi-passwords.txt \
-  --interface en1
-```
-
-> Each attempt takes ~8–10 seconds. The tool reconnects you to your original network when done.
-
-### WPA password audit
-
-```bash
-# Install tools (one-time)
-brew install aircrack-ng hashcat      # macOS
-sudo apt install aircrack-ng hashcat  # Debian / Ubuntu
-
-# Drop capture file in captures/ and run
-webscanner wifi-audit capture-01.cap
-webscanner wifi-audit capture-01.cap --wordlist wordlists/rockyou.txt
-webscanner wifi-audit capture-01.cap --bssid AA:BB:CC:DD:EE:FF
-```
-
----
-
 ### Docker security scanning
 
 ```bash
@@ -428,13 +351,11 @@ Interactive menu:
 ```
 [1] Start           — launch API (port 8000) + UI (port 3000)
 [2] Stop            — stop both services
-[3] Status          — running services + Docker/kubectl status + wordlist counts + security tools
-[4] WPA Audit       — dictionary attack on a .cap/.hc22000 capture file
-[5] WiFi Attack     — online brute force against a live SSID
-[6] Docker Scan     — Docker status check + security scan   [Docker: running ✓]
-[7] K8s Scan        — kubectl status check + security scan  [kubectl: connected ✓]
-[8] Download wordlists
-[9] Install Tools   — install/update nmap, aircrack-ng, hashcat, nikto, nuclei, gobuster, sqlmap, hydra, hcxtools, ffuf
+[3] Status          — running services + Docker/kubectl status + security tools
+[4] Docker Scan     — Docker status check + security scan   [Docker: running ✓]
+[5] K8s Scan        — kubectl status check + security scan  [kubectl: connected ✓]
+[6] Download wordlists
+[7] Install Tools   — install/update nmap, nikto, nuclei, gobuster, sqlmap, hydra, ffuf, and more
 [0] Exit
 ```
 
@@ -444,10 +365,8 @@ Direct shortcuts:
 ./start.sh start
 ./start.sh stop
 ./start.sh status
-./start.sh wifi-attack
 ./start.sh docker-scan
 ./start.sh k8s-scan
-./start.sh wpa-audit
 ./start.sh wordlists
 ./start.sh install-tools
 ```
@@ -458,7 +377,6 @@ Direct shortcuts:
 |-----|-------------|
 | `/` | Homepage — navigation to all tools |
 | `/scans` | Web vulnerability scanner — new scan form + live findings stream |
-| `/wifi` | WiFi scanner — passive scan with live log + per-network attack panel |
 | `/docker` | Docker scanner — Dockerfile/compose analysis + live container check |
 | `/k8s` | Kubernetes scanner — manifest analysis + live cluster check |
 
@@ -468,18 +386,6 @@ Direct shortcuts:
 - **Progress bar** — fills in real time as the scan runs; blue → green on success, red on failure
 - **Collapsible live log** — terminal-style panel showing timestamped progress messages; auto-scrolls to the latest line
 - **Findings accordion** — sorted by severity (CRITICAL first), expandable to show evidence and remediation
-
-### WiFi page features
-
-- **Passive scan** with streaming progress bar and live log
-- **Vuln Scan button** per network — filters the findings list to that network and auto-scrolls to it
-- **Attack panel** — slide-in panel for per-network brute force with:
-  - SSID field pre-filled from the selected network; editable if the SSID is hidden by macOS privacy
-  - `<datalist>` dropdown auto-populated with all your saved networks (from `networksetup`, no Location Services required)
-  - Streaming progress bar (orange while running, green/red on finish)
-  - Collapsible live attack log with color-coded lines (green = success, yellow = warning)
-  - Time estimate based on attempt count
-- **Location Services warning** — yellow banner shown after scan when all SSIDs are `<redacted>`, with step-by-step instructions for enabling access
 
 ---
 
@@ -494,10 +400,6 @@ Direct shortcuts:
 | `GET` | `/api/scans/{id}` | Get scan result |
 | `DELETE` | `/api/scans/{id}` | Delete scan |
 | `GET` | `/api/scans/{id}/stream` | SSE stream for web scan findings |
-| `GET` | `/api/wifi/scan` | Run passive WiFi scan (sync) |
-| `POST` | `/api/wifi/scan/start` | Start streaming WiFi scan → `{job_id}` |
-| `POST` | `/api/wifi/attack/start` | Start streaming WiFi online attack → `{job_id}` |
-| `GET` | `/api/wifi/known-networks` | List saved network SSIDs (via `networksetup`) |
 | `POST` | `/api/docker/scan` | Run Docker scan (sync) |
 | `POST` | `/api/docker/scan/start` | Start streaming Docker scan → `{job_id}` |
 | `POST` | `/api/k8s/scan` | Run K8s scan (sync) |
@@ -550,14 +452,8 @@ ruff check src/     # linting
 | API backend | FastAPI + Uvicorn |
 | Live streaming | sse-starlette (Server-Sent Events) |
 | Web frontend | Next.js + TypeScript + Tailwind CSS |
-| WiFi scanning (macOS) | CoreWLAN via Swift helper, fallback to system_profiler |
-| WiFi scanning (Linux) | nmcli / iwlist |
-| WiFi scanning (Windows) | netsh |
-| WiFi known networks | networksetup -listpreferredwirelessnetworks (macOS, no Location Services needed) |
-| WiFi online attack | networksetup (macOS), streaming via SSE job |
 | Docker scanning | subprocess → docker ps / docker inspect |
 | K8s scanning | subprocess → kubectl get/describe |
-| WPA auditing | aircrack-ng + hashcat |
 | Wordlists | SecLists (GitHub) + built-in compact lists |
 | Testing | pytest + pytest-asyncio + pytest-httpserver |
 
