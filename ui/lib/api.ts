@@ -25,6 +25,37 @@ export interface Finding {
   timestamp: string;
 }
 
+export interface SiteInfo {
+  final_url: string;
+  status_code: number;
+  response_time_ms: number;
+  redirect_chain: string[];
+  server: string | null;
+  powered_by: string | null;
+  ip_address: string | null;
+  cdn: string | null;
+  title: string | null;
+  description: string | null;
+  favicon_url: string | null;
+  language: string | null;
+  og_title: string | null;
+  og_description: string | null;
+  technologies: string[];
+  ssl_issuer: string | null;
+  ssl_subject: string | null;
+  ssl_expiry: string | null;
+  ssl_days_remaining: number | null;
+  ssl_sans: string[];
+  dns_a: string[];
+  dns_mx: string[];
+  dns_ns: string[];
+  dns_txt: string[];
+  has_robots_txt: boolean;
+  robots_txt_preview: string | null;
+  has_sitemap: boolean;
+  response_headers: Record<string, string>;
+}
+
 export interface Scan {
   scan_id: string;
   status: ScanStatus;
@@ -35,6 +66,7 @@ export interface Scan {
   finished_at: string | null;
   summary: ScanSummary;
   findings: Finding[];
+  site_info: SiteInfo | null;
   error: string | null;
 }
 

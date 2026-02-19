@@ -7,6 +7,7 @@ import { formatDuration } from "@/lib/utils";
 import StatusBadge from "@/components/StatusBadge";
 import SummaryCards from "@/components/SummaryCards";
 import FindingsTable from "@/components/FindingsTable";
+import SiteInfoPanel from "@/components/SiteInfoPanel";
 import { Shield, ArrowLeft, Download, Terminal, ChevronDown, ChevronUp, Square } from "lucide-react";
 
 interface LogEntry { time: string; pct: number; msg: string; }
@@ -288,6 +289,9 @@ export default function ScanDetailPage() {
             Scan in progress — connecting to live stream…
           </div>
         )}
+
+        {/* Site Overview panel — shown once site_info is available */}
+        {scan.site_info && <SiteInfoPanel siteInfo={scan.site_info} />}
 
         {/* Summary */}
         {liveSummary && (

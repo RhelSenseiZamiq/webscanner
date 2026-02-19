@@ -8,6 +8,21 @@ A security scanner built for authorized testing. Covers web vulnerabilities, Doc
 
 ## Changelog
 
+### v0.3.0 — 2026-02-19
+
+**New features**
+- **Site Overview panel** — every completed scan report now includes a collapsible Site Overview section at the top of the report. It is collected automatically during Phase 1 recon and persists with the scan record across server restarts. Sections:
+  - *Overview strip* — HTTP status code badge, response time, resolved IP address, server header, Powered-By, CDN detection (Cloudflare, CloudFront, Fastly, Akamai, Azure CDN, Varnish, Sucuri, Plesk), language, redirect count
+  - *Page* — page title, meta description, OG title and description, favicon thumbnail
+  - *Technology* — pill badges for every fingerprinted framework or library
+  - *SSL Certificate* — issuer, subject, expiry date, days-remaining badge (green ≥30 days, yellow ≥7 days, red <7 days), Subject Alternative Names
+  - *DNS Records* — A / MX / NS / TXT records in a compact table (A via standard library, MX/NS/TXT via optional `dnspython`)
+  - *Crawl Files* — robots.txt presence with a preview of the first 500 characters, sitemap.xml presence
+  - *Response Headers* — full collapsible table of all HTTP response headers
+- Panel is **collapsed by default**; click the header to expand.
+
+---
+
 ### v0.2.0 — 2026-02-19
 
 **New features**
@@ -152,6 +167,14 @@ Phase 1: Recon (sequential)
   └── Tech fingerprinting    (headers + HTML)
   │
   ▼
+Site Overview collection (concurrent, best-effort)
+  ├── HTTP fetch       → status, headers, body, redirect chain, response time
+  ├── HTML parsing     → title, description, favicon, language, OG tags
+  ├── SSL certificate  → issuer, expiry, SANs (stdlib ssl module, thread executor)
+  ├── DNS lookup       → A records (socket), MX/NS/TXT (dnspython if installed)
+  └── Crawl files      → robots.txt preview, sitemap.xml presence
+  │
+  ▼
 Phase 2: Analysis (parallel, all at once)
   ├── Headers module    → security headers, SSL/TLS, cookies
   ├── OWASP module      → SQLi, XSS, CSRF, SSRF, open redirect, auth, misconfig, secrets
@@ -211,7 +234,8 @@ webscanner/
 │   │   ├── http_client.py                # Shared aiohttp session with scope enforcement
 │   │   ├── scanner.py                    # Scanner Protocol (interface)
 │   │   └── exceptions.py                 # Custom exception hierarchy
-│   ├── recon/                            # Subdomain, port, directory, fingerprint
+│   ├── recon/                            # Subdomain, port, directory, fingerprint, site overview
+│   │   └── site_info.py                  # SiteInfo dataclass + SiteInfoGatherer (HTTP/SSL/DNS/metadata)
 │   ├── headers/                          # Security headers, SSL/TLS, cookies
 │   ├── owasp/                            # SQLi, XSS, CSRF, SSRF, open redirect, auth, misconfig, secrets
 │   │   ├── path_traversal.py             # LFI / path traversal scanner (CWE-22)
@@ -232,7 +256,7 @@ webscanner/
 │   ├── orchestrator/engine.py            # Coordinates all web scan modules
 │   └── api/                              # FastAPI backend
 │       ├── app.py                        # All REST endpoints + SSE streams
-│       ├── models.py                     # Pydantic request/response models
+│       ├── models.py                     # Pydantic request/response models (incl. SiteInfoResponse)
 │       ├── store.py                      # Scan store with SSE broadcast + on-disk persistence (web scans)
 │       └── job_store.py                  # Thread-safe job tracker with SSE fan-out (Docker/K8s)
 ├── ui/                                   # Next.js + TypeScript + Tailwind frontend
@@ -242,6 +266,7 @@ webscanner/
 │       ├── docker/page.tsx               # Docker security scanner with progress + live log
 │       └── k8s/page.tsx                  # Kubernetes scanner with progress + live log
 │   └── components/
+│       ├── SiteInfoPanel.tsx             # Site Overview panel (HTTP/SSL/DNS/metadata/headers)
 │       ├── StatsPanel.tsx                # Dashboard overview — counts, severity chart, success rate
 │       ├── FindingsTable.tsx             # Findings list with filter, search, remediation buttons
 │       ├── NewScanForm.tsx               # New scan form with module selection
@@ -444,6 +469,7 @@ Direct shortcuts:
 
 ### Scan detail features
 
+- **Site Overview panel** — collapsible panel at the top of every completed report showing HTTP basics, server/CDN info, page metadata, detected technologies, SSL certificate details, DNS records, robots.txt preview, and all response headers
 - **Live findings stream** — findings appear as they are discovered via SSE
 - **Stop Scan button** — cancels a running scan immediately (red button, visible only while running)
 - **Export dropdown** — download results as JSON / CSV / HTML Report (available once completed)

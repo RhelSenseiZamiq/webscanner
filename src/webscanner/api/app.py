@@ -39,6 +39,7 @@ from webscanner.api.job_store import JobStore
 from webscanner.api.store import ScanStore
 from webscanner.core.scope import ScopeConfig
 from webscanner.orchestrator.engine import ScanConfig, run_scan
+from webscanner.recon.site_info import SiteInfo
 
 logger = logging.getLogger("webscanner.api")
 
@@ -318,8 +319,11 @@ async def _run_scan_task(scan_id: str, config: ScanConfig) -> None:
     record.set_status(ScanStatus.RUNNING)
     record.started_at = datetime.now(timezone.utc)
 
+    def _on_site_info(info: SiteInfo) -> None:
+        record.site_info = info
+
     try:
-        result = await run_scan(config, on_progress=record.add_progress)
+        result = await run_scan(config, on_progress=record.add_progress, on_site_info=_on_site_info)
         record.set_result(result)
         logger.info("Scan %s completed with %d findings", scan_id, len(result.all_findings))
     except asyncio.CancelledError:

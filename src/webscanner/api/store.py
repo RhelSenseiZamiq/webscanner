@@ -15,8 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from webscanner.api.models import FindingResponse, ScanResponse, ScanStatus, ScanSummary
+from webscanner.api.models import FindingResponse, ScanResponse, ScanStatus, ScanSummary, SiteInfoResponse
 from webscanner.core.types import Finding, ScanModule, ScanResult, Severity
+from webscanner.recon.site_info import SiteInfo
 
 logger = logging.getLogger("webscanner.api.store")
 
@@ -45,6 +46,8 @@ class ScanRecord:
     _buffer: list[dict[str, Any]] = field(default_factory=list, repr=False)
     # Background asyncio task — used for cancel support; excluded from serialisation
     _task: asyncio.Task | None = field(default=None, repr=False)
+    # Site overview collected during recon; excluded from in-memory repr
+    site_info: SiteInfo | None = field(default=None, repr=False)
 
     def add_finding(self, finding: Finding) -> None:
         self.findings.append(finding)
@@ -114,6 +117,7 @@ class ScanRecord:
                 )
                 for f in self.findings
             ],
+            site_info=_site_info_to_response(self.site_info),
             error=self.error,
         )
 
@@ -211,11 +215,14 @@ def _record_to_dict(record: ScanRecord) -> dict[str, Any]:
         "finished_at": record.finished_at.isoformat() if record.finished_at else None,
         "error": record.error,
         "findings": [_finding_to_dict(f) for f in record.findings],
+        "site_info": _site_info_to_dict(record.site_info),
     }
 
 
 def _record_from_dict(data: dict[str, Any]) -> ScanRecord:
     findings = [_finding_from_dict(f) for f in data.get("findings", [])]
+    raw_si = data.get("site_info")
+    site_info = _site_info_from_dict(raw_si) if raw_si else None
     return ScanRecord(
         scan_id=data["scan_id"],
         status=ScanStatus(data["status"]),
@@ -226,6 +233,7 @@ def _record_from_dict(data: dict[str, Any]) -> ScanRecord:
         finished_at=datetime.fromisoformat(data["finished_at"]) if data.get("finished_at") else None,
         error=data.get("error"),
         findings=findings,
+        site_info=site_info,
     )
 
 
@@ -260,6 +268,109 @@ def _finding_from_dict(data: dict[str, Any]) -> Finding:
         cvss_score=data.get("cvss_score"),
         cwe_id=data.get("cwe_id"),
         timestamp=datetime.fromisoformat(data["timestamp"]),
+    )
+
+
+def _site_info_to_dict(info: SiteInfo | None) -> dict[str, Any] | None:
+    if info is None:
+        return None
+    return {
+        "final_url": info.final_url,
+        "status_code": info.status_code,
+        "response_time_ms": info.response_time_ms,
+        "redirect_chain": list(info.redirect_chain),
+        "server": info.server,
+        "powered_by": info.powered_by,
+        "ip_address": info.ip_address,
+        "cdn": info.cdn,
+        "title": info.title,
+        "description": info.description,
+        "favicon_url": info.favicon_url,
+        "language": info.language,
+        "og_title": info.og_title,
+        "og_description": info.og_description,
+        "technologies": list(info.technologies),
+        "ssl_issuer": info.ssl_issuer,
+        "ssl_subject": info.ssl_subject,
+        "ssl_expiry": info.ssl_expiry,
+        "ssl_days_remaining": info.ssl_days_remaining,
+        "ssl_sans": list(info.ssl_sans),
+        "dns_a": list(info.dns_a),
+        "dns_mx": list(info.dns_mx),
+        "dns_ns": list(info.dns_ns),
+        "dns_txt": list(info.dns_txt),
+        "has_robots_txt": info.has_robots_txt,
+        "robots_txt_preview": info.robots_txt_preview,
+        "has_sitemap": info.has_sitemap,
+        "response_headers": dict(info.response_headers),
+    }
+
+
+def _site_info_from_dict(data: dict[str, Any]) -> SiteInfo:
+    return SiteInfo(
+        final_url=data["final_url"],
+        status_code=data["status_code"],
+        response_time_ms=data["response_time_ms"],
+        redirect_chain=tuple(data.get("redirect_chain", [])),
+        server=data.get("server"),
+        powered_by=data.get("powered_by"),
+        ip_address=data.get("ip_address"),
+        cdn=data.get("cdn"),
+        title=data.get("title"),
+        description=data.get("description"),
+        favicon_url=data.get("favicon_url"),
+        language=data.get("language"),
+        og_title=data.get("og_title"),
+        og_description=data.get("og_description"),
+        technologies=tuple(data.get("technologies", [])),
+        ssl_issuer=data.get("ssl_issuer"),
+        ssl_subject=data.get("ssl_subject"),
+        ssl_expiry=data.get("ssl_expiry"),
+        ssl_days_remaining=data.get("ssl_days_remaining"),
+        ssl_sans=tuple(data.get("ssl_sans", [])),
+        dns_a=tuple(data.get("dns_a", [])),
+        dns_mx=tuple(data.get("dns_mx", [])),
+        dns_ns=tuple(data.get("dns_ns", [])),
+        dns_txt=tuple(data.get("dns_txt", [])),
+        has_robots_txt=data.get("has_robots_txt", False),
+        robots_txt_preview=data.get("robots_txt_preview"),
+        has_sitemap=data.get("has_sitemap", False),
+        response_headers=data.get("response_headers", {}),
+    )
+
+
+def _site_info_to_response(info: SiteInfo | None) -> SiteInfoResponse | None:
+    if info is None:
+        return None
+    return SiteInfoResponse(
+        final_url=info.final_url,
+        status_code=info.status_code,
+        response_time_ms=info.response_time_ms,
+        redirect_chain=list(info.redirect_chain),
+        server=info.server,
+        powered_by=info.powered_by,
+        ip_address=info.ip_address,
+        cdn=info.cdn,
+        title=info.title,
+        description=info.description,
+        favicon_url=info.favicon_url,
+        language=info.language,
+        og_title=info.og_title,
+        og_description=info.og_description,
+        technologies=list(info.technologies),
+        ssl_issuer=info.ssl_issuer,
+        ssl_subject=info.ssl_subject,
+        ssl_expiry=info.ssl_expiry,
+        ssl_days_remaining=info.ssl_days_remaining,
+        ssl_sans=list(info.ssl_sans),
+        dns_a=list(info.dns_a),
+        dns_mx=list(info.dns_mx),
+        dns_ns=list(info.dns_ns),
+        dns_txt=list(info.dns_txt),
+        has_robots_txt=info.has_robots_txt,
+        robots_txt_preview=info.robots_txt_preview,
+        has_sitemap=info.has_sitemap,
+        response_headers=dict(info.response_headers),
     )
 
 

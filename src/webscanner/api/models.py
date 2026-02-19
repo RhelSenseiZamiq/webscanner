@@ -83,6 +83,39 @@ class ScanSummary(BaseModel):
     info: int = 0
 
 
+class SiteInfoResponse(BaseModel):
+    """Technical profile of a scanned website, serialised for the REST API."""
+
+    final_url: str
+    status_code: int
+    response_time_ms: float
+    redirect_chain: list[str] = []
+    server: str | None = None
+    powered_by: str | None = None
+    ip_address: str | None = None
+    cdn: str | None = None
+    title: str | None = None
+    description: str | None = None
+    favicon_url: str | None = None
+    language: str | None = None
+    og_title: str | None = None
+    og_description: str | None = None
+    technologies: list[str] = []
+    ssl_issuer: str | None = None
+    ssl_subject: str | None = None
+    ssl_expiry: str | None = None
+    ssl_days_remaining: int | None = None
+    ssl_sans: list[str] = []
+    dns_a: list[str] = []
+    dns_mx: list[str] = []
+    dns_ns: list[str] = []
+    dns_txt: list[str] = []
+    has_robots_txt: bool = False
+    robots_txt_preview: str | None = None
+    has_sitemap: bool = False
+    response_headers: dict[str, str] = {}
+
+
 class ScanResponse(BaseModel):
     scan_id: str
     status: ScanStatus
@@ -93,6 +126,7 @@ class ScanResponse(BaseModel):
     finished_at: datetime | None = None
     summary: ScanSummary = ScanSummary()
     findings: list[FindingResponse] = []
+    site_info: SiteInfoResponse | None = None
     error: str | None = None
 
 

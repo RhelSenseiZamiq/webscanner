@@ -38,6 +38,7 @@ from webscanner.owasp.xss import XSSScanner
 from webscanner.recon.directory import DirectoryScanner
 from webscanner.recon.fingerprint import FingerprintScanner
 from webscanner.recon.port_scan import PortScanner
+from webscanner.recon.site_info import SiteInfo, SiteInfoGatherer, with_technologies
 from webscanner.recon.subdomain import SubdomainScanner
 from webscanner.bruteforce.http_auth import HttpAuthBruteForce
 from webscanner.bruteforce.form_login import FormLoginBruteForce
@@ -67,6 +68,7 @@ class ScanConfig:
 async def run_scan(
     config: ScanConfig,
     on_progress: Callable[[int, str], None] | None = None,
+    on_site_info: Callable[[SiteInfo], None] | None = None,
 ) -> ScanResult:
     """Execute a full vulnerability scan with the given configuration."""
 
@@ -106,6 +108,21 @@ async def run_scan(
             emit(5, "Recon: enumerating subdomains…")
             recon_results = await _run_recon(target, rate_limiter, http_client, config, emit)
             module_results.extend(recon_results)
+
+            if on_site_info is not None:
+                try:
+                    emit(28, "Collecting site overview…")
+                    technologies = tuple(
+                        f.title.removeprefix("Technology detected: ")
+                        for mr in recon_results
+                        for f in mr.findings
+                        if f.check_name == "technology_detected"
+                    )
+                    raw_info = await SiteInfoGatherer(http_client).gather(target)
+                    on_site_info(with_technologies(raw_info, technologies))
+                except Exception:
+                    logger.debug("Site info gathering failed", exc_info=True)
+
             emit(30, "Recon complete — launching parallel analysis modules")
 
         parallel_tasks: list[asyncio.Task[list[ModuleResult]]] = []
