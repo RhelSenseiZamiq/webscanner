@@ -4,53 +4,7 @@ A security scanner built for authorized testing. Covers web vulnerabilities, Doc
 
 > **Important:** This tool is for authorized testing only. It will refuse to run without a scope file that explicitly confirms you have permission to scan the target.
 
----
-
-## Changelog
-
-### v0.3.0 — 2026-02-19
-
-**New features**
-- **Site Overview panel** — every completed scan report now includes a collapsible Site Overview section at the top of the report. It is collected automatically during Phase 1 recon and persists with the scan record across server restarts. Sections:
-  - *Overview strip* — HTTP status code badge, response time, resolved IP address, server header, Powered-By, CDN detection (Cloudflare, CloudFront, Fastly, Akamai, Azure CDN, Varnish, Sucuri, Plesk), language, redirect count
-  - *Page* — page title, meta description, OG title and description, favicon thumbnail
-  - *Technology* — pill badges for every fingerprinted framework or library
-  - *SSL Certificate* — issuer, subject, expiry date, days-remaining badge (green ≥30 days, yellow ≥7 days, red <7 days), Subject Alternative Names
-  - *DNS Records* — A / MX / NS / TXT records in a compact table (A via standard library, MX/NS/TXT via optional `dnspython`)
-  - *Crawl Files* — robots.txt presence with a preview of the first 500 characters, sitemap.xml presence
-  - *Response Headers* — full collapsible table of all HTTP response headers
-- Panel is **collapsed by default**; click the header to expand.
-
----
-
-### v0.2.0 — 2026-02-19
-
-**New features**
-- **Cancel running scan** — stop any in-progress scan from the web UI with a single click; the backend cancels the asyncio task and persists the final state immediately.
-- **Export findings** — download completed scan results as JSON, CSV, or a self-contained HTML report directly from the scan detail page.
-- **Filter & search** — homepage now has a live search bar (filter by URL or program name), status pill filters (All / Running / Completed / Failed), and Has Critical / Has High checkboxes.
-- **Dashboard statistics** — a stats panel above the scan list shows total / completed / running / failed counts, a stacked severity bar chart across all completed scans, and an overall success rate bar.
-- **Remediation tracker** — mark individual findings as Fixed, In Progress, or Accepted Risk. State is persisted in `localStorage` and survives page reloads. A progress bar above the findings list shows how many findings have been resolved.
-- **Docker + docker-compose deployment** — `Dockerfile.api`, `Dockerfile.ui`, and `docker-compose.yml` added for one-command containerised deployment (`docker compose up --build`).
-
-**Bug fixes**
-- `DELETE /api/scans/{id}` was validating but never actually deleting the record — fixed.
-- Scan history loaded oldest scans first after a server restart instead of newest — fixed sort order in `_load_from_disk()`.
-- API connection errors were silently swallowed; the homepage now shows a warning banner when the backend is unreachable.
-- HTML export output now uses `html.escape()` on all finding fields to prevent XSS in exported reports.
-- Background scan tasks are now kept in a strong-reference set so they cannot be garbage-collected before completion.
-
----
-
-### v0.1.0 — initial release
-
-- Web vulnerability scanning (recon, headers, OWASP, API security, brute force)
-- Docker security scanner (static + live)
-- Kubernetes security scanner (static + live)
-- FastAPI backend with Server-Sent Events streaming
-- Next.js dark-themed web UI
-- CLI with Typer + Rich output
-- JSON / HTML / terminal report formats
+See [CHANGELOG.md](CHANGELOG.md) for the full version history.
 
 ---
 
